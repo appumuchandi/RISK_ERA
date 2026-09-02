@@ -27,7 +27,7 @@ The page shows:
 ### 1:05 — Run Nemotron Investigation
 The analyst clicks "Run Investigation." The system:
 1. Executes controlled tool calls to retrieve sanitized evidence related to the transaction
-2. Calls NVIDIA Nemotin API: `https://integrate.api.nvidia.com/v1` with model `nvidia/nemotron-3.5-lightning-30b-a3b`
+2. Calls NVIDIA Nemotron API: `https://integrate.api.nvidia.com/v1` with model `nvidia/nemotron-3.5-lightning-30b-a3b`
 3. Validates evidence IDs against the schema before the model generates a response
 4. Returns an InvestigationResult with findings, recommendation, and confidence score
 

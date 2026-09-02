@@ -19,7 +19,7 @@ RISK-ERA is a transaction investigation system that combines rule-based detectio
 
 1. **Rule Engine**: Transaction rules detect anomalies → create Case records
 2. **Analyst Interface**: Analyst opens case → reviews transaction details
-3. **Investigation**: Analyst triggers Nemotin investigation → tools execute → evidence gathered
+3. **Investigation**: Analyst triggers Nemotron investigation → tools execute → evidence gathered
 4. **AI Reasoning**: Nemotron generates investigation result with findings, recommendation, confidence
 5. **Evidence Grounding**: Evidence IDs validated against schema; missing/referenced status tracked
 6. **Analyst Feedback**: ACCEPT/MODIFY/REJECT with optional reason → audit trail
@@ -78,7 +78,7 @@ NVIDIA Nemotron API (https://integrate.api.nvidia.com/v1)
 - **CORS**: Development allows localhost; production origins empty (configure for deployment)
 - **No Secrets in Frontend**: No NVIDIA API key, database credentials, or JWT secrets in browser bundles
 
-## Nemotin Integration
+## Nemotron Integration
 
 - **Endpoint**: `https://integrate.api.nvidia.com/v1`
 - **Model**: `nvidia/nemotron-3.5-lightning-30b-a3b`
@@ -97,7 +97,7 @@ NVIDIA Nemotron API (https://integrate.api.nvidia.com/v1)
 1. Rule engine flags suspicious transaction → Case created (status: OPEN)
 2. Analyst opens case → reviews transaction, risk score, findings
 3. Analyst triggers investigation → `POST /api/v1/investigation/{case_id}/run`
-4. System executes: tool retrieval → evidence validation → Nemotin API call
+4. System executes: tool retrieval → evidence validation → Nemotron API call
 5. Nemotron generates result → InvestigationResult stored in PostgreSQL
 6. Analyst reviews result → ACCEPT/MODIFY/REJECT with optional reason
 7. Audit event recorded with hash chain → integrity verifiable via `verify_chain()`

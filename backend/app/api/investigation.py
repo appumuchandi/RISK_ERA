@@ -82,7 +82,7 @@ def run_investigation(
     db: Session = Depends(get_db),
     user: str = Depends(require_auth),
 ):
-    """Run the Nemotin investigation for a case."""
+    """Run the Nemotron investigation for a case."""
     from app.models import Case, Transaction
     from app.models.transaction import TransactionStatus
     from sqlalchemy import select

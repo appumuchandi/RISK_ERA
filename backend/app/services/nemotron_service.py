@@ -24,14 +24,14 @@ class NemotronService:
 
     @property
     def available(self) -> bool:
-        """Check if Nemotin is available (lazy initialization)."""
+        """Check if Nemotron is available (lazy initialization)."""
         if self._availability is None:
             # Check availability on first access
             self._availability = self._check_availability()
         return self._availability
 
     def _check_availability(self) -> bool:
-        """Check if the Nemotin API is reachable."""
+        """Check if the Nemotron API is reachable."""
         try:
             # Try a minimal API call to verify availability
             response = self.client.chat.completions.create(
@@ -44,7 +44,7 @@ class NemotronService:
             return False
 
     def generate(self, prompt: str) -> str:
-        """Generate a response from Nemotin with observability tracking."""
+        """Generate a response from Nemotron with observability tracking."""
         start_time = time.time()
         self._total_calls += 1
 
@@ -76,12 +76,12 @@ class NemotronService:
             self._error_count += 1
             raise HTTPException(
                 status_code=503,
-                detail=f"Nemotin API unavailable: {str(e)}",
+                detail=f"Nemotron API unavailable: {str(e)}",
             )
 
     @property
     def metrics(self) -> dict[str, Any]:
-        """Get Nemotin service metrics for observability."""
+        """Get Nemotron service metrics for observability."""
         avg_time = (
             sum(self._response_times) / len(self._response_times)
             if self._response_times else 0.0
