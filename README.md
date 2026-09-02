@@ -167,9 +167,18 @@ graph TD
 | GET | /api/v1/investigation/{case_id}/latest | Latest investigation result |
 | GET | /api/v1/audit/ | Audit events with hash chain verification |
 
-**Local Setup**: `docker-compose up -d` (postgres + backend + frontend)
-**Environment Variables**: See `.env.example`
-**Tests**: `pytest` (157 tests passing)
+**Local Setup**:
+```bash
+cp backend/.env.example backend/.env  # set DATABASE_URL, NVIDIA_API_KEY, JWT_SECRET_KEY
+docker-compose up -d                  # postgres 17
+alembic upgrade head                  # from backend/
+uvicorn app.main:app --reload         # backend :8000
+npm run dev                           # frontend :5173 (VITE_API_BASE_URL=http://127.0.0.1:8000)
+# Seed demo users (optional, gated):
+DEMO_MODE=true python backend/scripts/seed_demo_users.py
+```
+**Environment Variables**: See `backend/.env.example` (placeholders only; never commit `.env`)
+**Tests**: `python -m pytest tests/test_phase3_intelligence.py -q` etc. individually/batched; see `TEST_RESULTS.md` for last verified counts (e.g., 38/33/21/26/31/18/28/6/7/18 across phase3-10/assistant/auth_security). Full 391-test single invocation can hit session-scoped `clean_db` TRUNCATE lock — run in batches.
 **Docker**: See `backend/Dockerfile` and `frontend/risk-era-analyst/Dockerfile`
 
 ## Known Limitations
@@ -193,13 +202,13 @@ graph TD
 - Real-time dashboard WebSockets
 - Additional evidence types (web reports, third-party data)
 
-## Verified Metrics
+## Verified Metrics (last batched runs)
 
-- **157/157** automated tests passing (all M1–M10 categories)
-- **Nemotin**: Live NVIDIA API integration verified
+- **Tests**: phase3 38, phase4 33, phase5 21, phase6 26, phase7 31, phase8 18, phase9 28, phase10_health 6, assistant 7, auth_security 18 — all passed individually (see `TEST_RESULTS.md`); run `pytest` in batches to avoid session-scoped TRUNCATE lock
+- **Nemotron**: NVIDIA API integration verified (with `DEMO_MODE=true` fallback for presentation)
 - **Audit**: SHA-256 hash chain integrity verified via `verify_chain()`
-- **Security**: No hardcoded secrets; `.env` git-ignored; `.env.example` placeholders
-- **Database**: `alembic upgrade head` successful; 23/23 schema tests passing
-- **Frontend**: Build configuration verified; React 19 + Vite + TypeScript
-- **Rate Limiting**: 100 req/60s per IP with 429 response
-- **Security Headers**: 5 headers enforced (CSP, HSTS, X-Frame, X-Content-Type, Referrer-Policy)
+- **Security**: No hardcoded `nvapi-`/`eyJhbGci` in `frontend/src`; no `?authorization=` handling in app code; auth requires `Authorization: Bearer` JWT; `.env` git-ignored
+- **Database**: `alembic upgrade head` successful; schema tests passing
+- **Frontend**: `tsc -b && vite build` 0 errors, 99 modules
+- **Rate Limiting**: global 1000/60s dev (100 prod) + dedicated `10/min` login / `5/min` register with 429
+- **Security Headers**: CSP, HSTS, X-Frame, X-Content-Type, Referrer-Policy, X-Request-ID

@@ -78,9 +78,19 @@ The AI **does NOT receive direct database access**. It only receives **controlle
 - **Diagnosis:** Each test file defines `scope="session"` `db` fixture with `TRUNCATE ... CASCADE` which takes ACCESS EXCLUSIVE lock; when pytest runs all files sequentially in one process, the previous file's session remains open while next file's `clean_db` tries to truncate, causing deadlock.
 - **Fix:** Not a product logic failure. Verified via batched runs: 195 tests (7 files) in 147s, 201 tests (8 files) in 149s, individual files <30s, all green. Documented as test harness limitation, not hidden.
 
+### 5. Authentication Security Incident & Recovery
+- **Original weakness:** `backend/app/api/auth.py` contained a hardcoded `DEMO_USERS` dictionary (analyst/admin/Admin1) and a universal bypass `if password == "demo":` that issued a valid JWT for any username. This allowed authentication without knowing the actual password and bypassed database verification.
+- **Discovery:** Found during pre-submission security review via `grep` for `password == "demo"` and `DEMO_USERS` and manual login probe (`admin/demo` returned 200). Flagged as P0.
+- **Why dangerous:** Any attacker knowing a single username could authenticate as that user; broke RBAC, audit attribution, and audit hash-chain integrity; violated credential-storage best practices (plaintext comparison, no hashing).
+- **Removal:** Deleted `DEMO_USERS` and the `password == "demo"` branch. Login now requires `SELECT` from `users` table and `passlib` bcrypt verification (`pwd_context.verify`). No hardcoded credentials remain in `auth.py`.
+- **Migration to DB auth:** Added `app/models/user.py` (`id, username unique, email unique, hashed_password, role, created_at`), Alembic migration `f8a9b0c1d2e3_add_users_table.py`, and `backend/scripts/seed_demo_users.py` gated by `DEMO_MODE=true` (refuses to run otherwise, skips duplicates, hashes with bcrypt). Demo accounts (analyst/admin/Admin1) now exist only as bcrypt hashes via the controlled seed, never as plaintext in code or login logic.
+- **Rate limiting:** Added dedicated `RateLimiter(10/min)` for `/auth/login` and `RateLimiter(5/min)` for `/auth/register` in `auth.py` via `_check_auth_rate_limit` (raises 429 with `Retry-After` and `X-Rate-Limit-*` headers). Global limiter remains (1000 dev / 100 prod) via middleware; auth limits are independent and not bypassed in testing.
+- **Security regression tests:** Created `backend/tests/test_auth_security.py` (18 tests) covering: demo bypass rejected (401), duplicate username/email 409, bcrypt storage, default role analyst, admin self-registration blocked, 401 invalid credentials, 422 malformed registration, login 429 on 11th attempt, register 429 on 6th attempt, query-param auth rejected (401), Bearer required (401 without, 200 with), no plaintext passwords in DB, `DEMO_USERS` absent in `auth.py`.
+- **Final verification:** `test_auth_security 18/18 passed`, demo bypass probes (`admin/demo`, `analyst/demo`, `Admin1/demo`) all 401, valid seeded logins (`Admin1`/`analyst`/`admin` with correct passwords) 200, query-param `?authorization=` 401, Bearer 200, `users.hashed_password` length 60 `$2b$`, `Select-String` for `nvapi-`/`eyJhbGci` clean except validation code, frontend contains no keys.
+
 ## Security Verification
 - No `nvapi-` or `eyJhbGci` in `frontend/src` (verified via `Select-String` on `frontend/risk-era-analyst/src`)
-- No `?authorization=` / `?Authorization=` / `?actor=` handling, no `window.location.reload`, no `HashRouter` (only `BrowserRouter`)
+- No `?authorization=` / `?Authorization=` / `?actor=` handling in application code (only tests asserting rejection), no `window.location.reload`, no `HashRouter` (only `BrowserRouter`)
 - `require_auth` on all protected endpoints (15/15 including assistant)
 - `Assistant` endpoint requires auth, no API key in frontend, uses existing `risk_era_token`
 

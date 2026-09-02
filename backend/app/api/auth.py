@@ -10,8 +10,33 @@ from app.auth.roles import Role
 from app.core.database import get_db
 from app.models.user import User
 from passlib.context import CryptContext
+from app.middleware.rate_limit import RateLimiter
+from fastapi import Request
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Dedicated rate limiters for auth endpoints (development-safe, not disabled)
+_auth_login_limiter = RateLimiter(limit=10, window_seconds=60)
+_auth_register_limiter = RateLimiter(limit=5, window_seconds=60)
+
+def _check_auth_rate_limit(request: Request, limiter: RateLimiter):
+    client_ip = request.client.host if request.client else "unknown"
+    allowed, info = limiter.check(client_ip)
+    if not allowed:
+        from fastapi.responses import JSONResponse
+        import time
+        retry_after = info["reset"] - int(time.time())
+        headers = {
+            "X-Rate-Limit-Limit": str(limiter.limit),
+            "X-Rate-Limit-Remaining": "0",
+            "X-Rate-Limit-Reset": str(info["reset"]),
+            "Retry-After": str(max(retry_after, 1)),
+        }
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many requests",
+            headers=headers,
+        )
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Auth"])
 
@@ -46,14 +71,6 @@ class RegisterResponse(BaseModel):
     role: str
     created_at: str
 
-# Demo credential store — synthetic, not production (kept for backward compatibility)
-DEMO_USERS = {
-    "analyst": {"password": "analyst123", "role": Role.ANALYST},
-    "admin": {"password": "admin123", "role": Role.ADMIN},
-    "Admin1": {"password": "Admin@1234", "role": Role.ADMIN},
-    "demo": {"password": "demo", "role": Role.ANALYST},
-}
-
 def _verify_password(plain: str, hashed: str) -> bool:
     try:
         return pwd_context.verify(plain, hashed)
@@ -65,7 +82,8 @@ def _hash_password(plain: str) -> str:
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
-def register(request: RegisterRequest, db: Session = Depends(get_db)):
+def register(request: RegisterRequest, http_request: Request, db: Session = Depends(get_db)):
+    _check_auth_rate_limit(http_request, _auth_register_limiter)
     # Check duplicate username
     existing_user = db.execute(select(User).where(User.username == request.username)).scalar_one_or_none()
     if existing_user:
@@ -73,11 +91,6 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     existing_email = db.execute(select(User).where(User.email == request.email)).scalar_one_or_none()
     if existing_email:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
-    # Also check against demo users to prevent confusion
-    if request.username in DEMO_USERS:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Username already exists")
-    # Check demo email not needed
-
     hashed = _hash_password(request.password)
     # Use provided name or username as display, but store username as login
     user = User(
@@ -104,21 +117,9 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(request: LoginRequest, db: Session = Depends(get_db)):
-    # First check demo users (kept for backward compatibility and tests)
-    user = DEMO_USERS.get(request.username)
-    if user:
-        if request.password != user["password"]:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-        token = JWTAuth.encode_token(subject=request.username)
-        return LoginResponse(access_token=token, role=user["role"], username=request.username)
-
-    # Allow any username with password "demo" for easy demo access
-    if request.password == "demo":
-        token = JWTAuth.encode_token(subject=request.username)
-        return LoginResponse(access_token=token, role=Role.ANALYST, username=request.username)
-
-    # Check database users
+def login(request: LoginRequest, http_request: Request, db: Session = Depends(get_db)):
+    _check_auth_rate_limit(http_request, _auth_login_limiter)
+    # Check database users (including seeded demo users)
     db_user = db.execute(select(User).where(User.username == request.username)).scalar_one_or_none()
     if not db_user:
         # Also try email login
@@ -139,12 +140,9 @@ def me(authorization: str = Header(None), db: Session = Depends(get_db)):
     sub = authenticate_token(authorization)
     if not sub:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-    # Check demo users first, then DB
-    user = DEMO_USERS.get(sub)
-    if user:
-        return {"username": sub, "role": user["role"]}
     db_user = db.execute(select(User).where(User.username == sub)).scalar_one_or_none()
     if db_user:
         return {"username": db_user.username, "role": db_user.role}
-    # Fallback for any demo "password demo" users
+    # If user not found in DB, still return username with default analyst role for backward compatibility
+    # (e.g., for tokens issued before user was created, or for test tokens)
     return {"username": sub, "role": Role.ANALYST}
