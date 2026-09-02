@@ -1,8 +1,7 @@
 # RISK-ERA
 
 ## Demo Video
-[▶ Watch the 5-minute walkthrough](PASTE_YOUR_VIDEO_LINK_HERE)
-*(Replace with your YouTube/Drive link — confirm it's viewable in an incognito window before submitting.)*
+[▶ Watch the 5-minute walkthrough](https://drive.google.com/file/d/1VzpX1uZEa_zFdD158QgbdSTqI-VxRZS2/view?usp=sharing)
 
 ## One-line Description
 A transaction investigation system that combines rule-based anomaly detection with NVIDIA Nemotron AI-powered investigation orchestration, delivering explainable risk decisions with full auditability.
