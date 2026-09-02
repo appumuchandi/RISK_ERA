@@ -1,5 +1,9 @@
 # RISK-ERA
 
+## Demo Video
+[▶ Watch the 5-minute walkthrough](PASTE_YOUR_VIDEO_LINK_HERE)
+*(Replace with your YouTube/Drive link — confirm it's viewable in an incognito window before submitting.)*
+
 ## One-line Description
 A transaction investigation system that combines rule-based anomaly detection with NVIDIA Nemotron AI-powered investigation orchestration, delivering explainable risk decisions with full auditability.
 
@@ -8,9 +12,9 @@ Financial transaction fraud detection requires both rapid automated response and
 
 ## Solution
 RISK-ERA implements a controlled, auditable investigation workflow where:
-- A rule engine flagges suspicious transactions and creates case records
+- A rule engine flags suspicious transactions and creates case records
 - Analysts review cases and trigger AI investigations with a single action
-- The Nemotin investigator executes controlled tool calls to retrieve sanitized evidence
+- The Nemotron investigator executes controlled tool calls to retrieve sanitized evidence
 - NVIDIA Nemotron generates grounded investigation results with recommendations
 - All actions are recorded in a SHA-256 hash-chain audit log
 - Role-based access control (JWT/RBAC) enforces ANALYST/ADMIN permissions
@@ -21,7 +25,7 @@ RISK-ERA implements a controlled, auditable investigation workflow where:
 | Feature | Description |
 |---------|-------------|
 | **Rule-based Detection** | DSL-driven rule engine with `BLOCK`/`REVIEW` actions |
-| **Nemotin Investigation** | NVIDIA Nemotron 3.5 Lightning investigation with controlled tools |
+| **Nemotron Investigation** | NVIDIA Nemotron 3.5 Lightning investigation with controlled tools |
 | **Evidence Grounding** | Validated evidence IDs; missing/referenced status tracking |
 | **Investigation Persistence** | Atomic commit/rollback; investigation history; feedback loop |
 | **Audit Hash Chain** | SHA-256 linked event chain; `verify_chain()` integrity validation |
@@ -82,7 +86,7 @@ graph TD
 3. **Analyst** opens case → reviews transaction, risk score, initial findings
 4. **Analyst** triggers investigation → `POST /api/v1/investigation/{case_id}/run`
 5. **Investigator** executes controlled tools → retrieves sanitized evidence
-6. **Nemotin** API call → `https://integrate.api.nvidia.com/v1` with `nvidia/nemotron-3.5-lightning-30b-a3b`
+6. **Nemotron** API call → `https://integrate.api.nvidia.com/v1` with `nvidia/nemotron-3.5-lightning-30b-a3b`
 7. **InvestigationResult** generated: recommendation, confidence, findings, evidence IDs
 8. **Result** persisted to PostgreSQL: case_id, status, model, recommendation, confidence, duration_ms, tool_calls, evidence_ids
 9. **Analyst** reviews result → ACCEPT/MODIFY/REJECT with optional reason
@@ -112,9 +116,9 @@ graph TD
 - **Correlation IDs**: X-Request-ID propagated through requests, responses, and structured logs
 - **No Secrets in Frontend**: No NVIDIA API key, database credentials, or JWT secrets in browser bundles
 - **Frontend-Backend Boundary**: All communication through API endpoints; no direct database access from browser
-- **No Direct NVIDIA Access from Frontend**: Nemotin calls go through backend only
+- **No Direct NVIDIA Access from Frontend**: Nemotron calls go through backend only
 
-## Nemotin Integration
+## Nemotron Integration
 
 - **Endpoint**: `https://integrate.api.nvidia.com/v1`
 - **Model**: `nvidia/nemotron-3.5-lightning-30b-a3b`
@@ -147,7 +151,7 @@ graph TD
 2. **Dashboard**: View metrics (open, in-progress, escalated cases) and case list
 3. **Cases**: List cases with filters and status badges
 4. **Case Investigation**: View transaction details, risk score, findings, evidence status
-5. **Run Investigation**: Trigger Nemotin investigation with one click
+5. **Run Investigation**: Trigger Nemotron investigation with one click
 6. **Review Result**: See recommendation, confidence, findings, evidence IDs
 7. **Submit Feedback**: ACCEPT/MODIFY/REJECT with optional reason
 8. **View Audit**: Hash-chain-verified audit trail of all actions
@@ -157,11 +161,11 @@ graph TD
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | /health | Health check |
-| GET | /ready | Readiness (DB + Nemotin status) |
+| GET | /ready | Readiness (DB + Nemotron status) |
 | POST | /api/v1/auth/login | JWT authentication |
 | GET | /api/v1/cases/ | List cases (with filters) |
 | GET | /api/v1/cases/{id} | Case details |
-| POST | /api/v1/investigation/{case_id}/run | Run Nemotin investigation |
+| POST | /api/v1/investigation/{case_id}/run | Run Nemotron investigation |
 | POST | /api/v1/feedback/ | Submit analyst feedback (ACCEPT/MODIFY/REJECT) |
 | GET | /api/v1/investigation/{case_id}/history | Investigation history |
 | GET | /api/v1/investigation/{case_id}/latest | Latest investigation result |
@@ -188,7 +192,7 @@ DEMO_MODE=true python backend/scripts/seed_demo_users.py
 - No Kubernetes or multi-agent orchestration
 - Deployment requires PostgreSQL + Docker + NVIDIA API key
 - Frontend requires `VITE_API_BASE_URL` configuration for production use
-- Nemotin response quality depends on NVIDIA API availability
+- Nemotron response quality depends on NVIDIA API availability
 - Rule engine is DSL-based; not a learning/ML model
 - Single-agent architecture; no multi-agent coordination
 
