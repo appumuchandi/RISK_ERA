@@ -11,6 +11,8 @@ export const Dashboard = ({ api }: Props) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [auditValid, setAuditValid] = useState<boolean | null>(null);
+  const [priorityCases, setPriorityCases] = useState<Array<{ id: string; status: string; created_at: string; amount?: string }>>([]);
+  const [priorityLoading, setPriorityLoading] = useState(false);
 
   const load = async () => {
     try {
@@ -22,6 +24,21 @@ export const Dashboard = ({ api }: Props) => {
       ]);
       setData(analytics);
       setAuditValid((verifyRes as { valid: boolean }).valid ?? null);
+      // priority cases — real backend data only
+      setPriorityLoading(true);
+      try {
+        const cRes: any = await api.getCases(1, 5, { status: "open" });
+        const items = cRes?.items || [];
+        // fetch amount for each to sort by risk (amount) deterministically
+        const withAmt = await Promise.all(items.slice(0, 5).map(async (c: any) => {
+          try {
+            const d: any = await api.getCase(c.id);
+            return { id: c.id, status: c.status, created_at: c.created_at, amount: d?.transaction?.amount || "0" };
+          } catch { return { id: c.id, status: c.status, created_at: c.created_at, amount: "0" }; }
+        }));
+        withAmt.sort((a, b) => parseFloat(b.amount || "0") - parseFloat(a.amount || "0"));
+        setPriorityCases(withAmt);
+      } catch { setPriorityCases([]); } finally { setPriorityLoading(false); }
     } catch (e: unknown) {
       const msg = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail || (e instanceof Error ? e.message : "Unable to load risk analytics.");
       setError(msg);
@@ -105,6 +122,34 @@ export const Dashboard = ({ api }: Props) => {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* Priority Attention — real cases from backend, demo flow entry */}
+      <div className="panel" style={{ padding: 16, marginBottom: 16, borderLeft: "3px solid var(--accent-amber)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0, display: "flex", alignItems: "center", gap: 8 }}>Priority Attention <span className="badge badge-neutral">{priorityCases.length ? `${priorityCases.length} open` : "—"}</span> <span className="muted" style={{ fontWeight: 400, fontSize: ".72rem" }}>— Open cases by risk (real PostgreSQL)</span></h3>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate("/cases")}>View all cases →</button>
+        </div>
+        {priorityLoading ? <div className="loading-state" style={{ margin: "12px 0 0 0" }}>Loading priority cases…</div> : priorityCases.length === 0 ? <div className="empty-state" style={{ marginTop: 12 }}>No open cases — all clear. Seed provides 83 cases via RuleEngine when available.</div> : (
+          <div className="table-wrap" style={{ marginTop: 12 }}>
+            <table className="cases-table" style={{ minWidth: 520 }}>
+              <thead><tr><th>Case ID</th><th>Amount</th><th>Status</th><th>Created</th><th></th></tr></thead>
+              <tbody>{priorityCases.map((c) => {
+                const amt = parseFloat(c.amount || "0");
+                const risk = amt > 30000 ? "Critical" : amt > 10000 ? "High" : amt > 5000 ? "Medium" : "Low";
+                return (
+                  <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => navigate(`/case/${c.id}`)}>
+                    <td className="mono">CASE-{c.id.slice(0, 8).toUpperCase()}</td>
+                    <td>₹{amt.toLocaleString("en-IN")}</td>
+                    <td><span className={`badge status-${c.status}`}>{c.status}</span> <span className={`badge risk-${risk.toLowerCase()}`}>{risk}</span></td>
+                    <td style={{ fontSize: ".78rem" }} className="muted">{new Date(c.created_at).toLocaleDateString()}</td>
+                    <td><button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); navigate(`/case/${c.id}`); }}>Open →</button></td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* KPI ROW */}

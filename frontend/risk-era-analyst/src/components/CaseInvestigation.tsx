@@ -207,26 +207,35 @@ export const CaseInvestigation = ({ api }: { api: ApiService }) => {
         {caseDetail.transaction_id ? <DecisionExplanation api={api} transactionId={caseDetail.transaction_id} /> : <div className="empty-state">No transaction linked</div>}
       </div>
 
-      {/* E. Evidence */}
+      {/* E. Evidence — grounding status from real investigation data */}
       <div className="panel">
-        <h3>Evidence Workspace — {evidence.length} items {evidence.length === 0 && <span className="badge badge-warn">Evidence Exceptions</span>}</h3>
+        <h3>Evidence Workspace — {evidence.length} items {evidence.length === 0 ? <span className="badge badge-warn">Evidence Exceptions</span> : inv ? <span className="badge badge-neutral">{(inv.evidence_references||[]).length} valid · {(inv.missing_evidence||[]).length} missing</span> : <span className="badge badge-neutral">Awaiting investigation</span>}</h3>
+        <p className="muted" style={{ fontSize: ".72rem", marginTop: 4 }}>Grounding: <span className="badge badge-ok" style={{ fontSize: ".62rem" }}>Valid</span> exists &amp; supports finding · <span className="badge badge-bad" style={{ fontSize: ".62rem" }}>Missing</span> referenced but not found · <span className="badge badge-warn" style={{ fontSize: ".62rem" }}>Referenced</span> linked but not yet validated · Derived from Investigation.evidence_references / missing_evidence</p>
         {evidence.length === 0 ? (
           <div className="empty-state">No evidence grounded yet — run investigation to retrieve transaction/customer/device context</div>
         ) : (
           <div className="table-wrap">
             <table className="cases-table">
-              <thead><tr><th>Evidence ID</th><th>Type</th><th>Title</th><th>Source</th><th>Timestamp</th><th>Grounding</th></tr></thead>
+              <thead><tr><th>Evidence ID</th><th>Type</th><th>Source</th><th>Timestamp</th><th>Grounding</th></tr></thead>
               <tbody>
-                {evidence.map((ev: any) => (
-                  <tr key={ev.id}>
-                    <td className="mono">{String(ev.id).slice(0, 8)}</td>
-                    <td>{ev.source_type}</td>
-                    <td style={{ maxWidth: 200, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={JSON.stringify(ev.payload || {}).slice(0, 200)}>{ev.source_type}:{String(ev.source_id).slice(0, 6)}</td>
-                    <td className="muted">{String(ev.source_id).slice(0, 8)}</td>
-                    <td style={{ fontSize: ".72rem" }}>{ev.created_at ? new Date(ev.created_at).toLocaleString() : "—"}</td>
-                    <td><span className="badge badge-ok">Grounded</span></td>
-                  </tr>
-                ))}
+                {evidence.map((ev: any) => {
+                  const idStr = String(ev.id);
+                  const isMissing = inv && Array.isArray(inv.missing_evidence) && inv.missing_evidence.includes(idStr);
+                  const isValid = inv && Array.isArray(inv.evidence_references) && inv.evidence_references.includes(idStr);
+                  let grounding: { label: string; cls: string } = { label: "Referenced", cls: "badge-warn" };
+                  if (isValid) grounding = { label: "Valid", cls: "badge-ok" };
+                  else if (isMissing) grounding = { label: "Missing", cls: "badge-bad" };
+                  else if (!inv) grounding = { label: "Pending", cls: "badge-neutral" };
+                  return (
+                    <tr key={ev.id}>
+                      <td className="mono">{idStr.slice(0, 8)}</td>
+                      <td>{ev.source_type}</td>
+                      <td className="muted" title={String(ev.source_id)}>{String(ev.source_id).slice(0, 12)}</td>
+                      <td style={{ fontSize: ".72rem" }}>{ev.created_at ? new Date(ev.created_at).toLocaleString() : ev.retrieved_at ? new Date(ev.retrieved_at).toLocaleString() : "—"}</td>
+                      <td><span className={`badge ${grounding.cls}`}>{grounding.label}</span></td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
