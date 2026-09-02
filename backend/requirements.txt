@@ -1,0 +1,9 @@
+# Production dependencies
+fastapi==0.141.1
+pydantic==2.13.4
+pydantic-settings==2.15.0
+SQLAlchemy==2.0.52
+psycopg==3.3.4
+python-dotenv==1.2.3
+uvicorn==0.52.4
+alembic==1.19.1

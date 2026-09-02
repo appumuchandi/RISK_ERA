@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: risk-era-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: risk_era
+      POSTGRES_USER: risk_era
+      POSTGRES_PASSWORD: risk_era_dev
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U risk_era -d risk_era"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+    container_name: risk-era-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database
+      DATABASE_URL: postgresql+psycopg://risk_era:risk_era_dev@postgres:5432/risk_era
+      # JWT Authentication
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      # NVIDIA / Nemotron
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY}
+      # Application
+      APP_ENV: production
+      # CORS
+      CORS_ORIGINS: ""
+    ports:
+      - "8000:8000"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend/risk-era-analyst
+    container_name: risk-era-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+
+volumes:
+  pg_data:
