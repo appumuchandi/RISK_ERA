@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
-import { useApi } from "../api";
+import { useApi, type ApiService } from "../api";
 import { useAuth } from "../contexts/AuthContext";
 
 type Message = {
@@ -19,10 +19,11 @@ const SUGGESTED = [
   "Explain this case.",
 ];
 
-export default function Assistant() {
+export default function Assistant({ api: propApi }: { api?: ApiService }) {
   const location = useLocation();
   const params = useParams();
-  const api = useApi();
+  const fallbackApi = useApi();
+  const api = propApi ?? fallbackApi;
   const { token } = useAuth();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>(() => {

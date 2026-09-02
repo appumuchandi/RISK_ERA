@@ -114,7 +114,7 @@ export default function App() {
           <footer className="app-footer">RISK-ERA — Independent AI Risk Investigation Platform · Demo Environment · Synthetic Payment Data · Detect → Investigate → Ground → Decide → Audit</footer>
         </div>
       </div>
-      <Assistant />
+      <Assistant api={api} />
     </div>
   );
 }
