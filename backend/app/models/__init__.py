@@ -9,6 +9,7 @@ from app.models.audit_log import AuditLog
 from app.models.investigation import Investigation, InvestigationStatus
 from app.models.feedback import AnalystFeedback, FeedbackDecision
 from app.models.alert import Alert, AlertStatus, AlertSeverity
+from app.models.user import User
 
 __all__ = [
     "Customer",
@@ -26,4 +27,5 @@ __all__ = [
     "Alert",
     "AlertStatus",
     "AlertSeverity",
+    "User",
 ]

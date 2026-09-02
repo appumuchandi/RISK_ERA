@@ -37,7 +37,7 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialToken?: string
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) {
-        throw new Error(data.detail || "Invalid credentials — try analyst / analyst123");
+        throw new Error(data.detail || "Invalid credentials");
       }
       const access = data.access_token as string;
       const r = (data.role as string) || "analyst";
