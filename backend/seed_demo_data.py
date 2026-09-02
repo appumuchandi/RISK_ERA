@@ -3,19 +3,22 @@
 RISK-ERA Deterministic Synthetic Demo Seeder
 Inserts demo data into the PostgreSQL instance used by the running FastAPI app.
 All data is SYNTHETIC — not real customer/payment data.
+
+Deterministic (seed=42) and idempotent: running twice without --force will not duplicate.
+Uses existing TransactionService + RuleEngine pipeline to create Cases (no direct fake Case inserts).
 """
 from __future__ import annotations
 
-import uuid
+import argparse
 import random
-import json
+import uuid
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import text
+from sqlalchemy import text, select
 
 from app.core.database import SessionLocal, engine
-from app.models import Rule
+from app.models import Rule, Customer
 from app.models.rule import RuleAction
 from app.services.transaction_service import TransactionService
 
@@ -48,7 +51,6 @@ DEMO_RULES = [
 ]
 
 SHOWCASE_TRANSACTIONS = [
-    # Case A: High-value suspicious from new device + high velocity pattern
     {
         "provider_event_id": "evt_demo_caseA_001",
         "amount": Decimal("48500.00"),
@@ -61,7 +63,6 @@ SHOWCASE_TRANSACTIONS = [
         "merchant_category_code": "7995",
         "raw_payload": {"city": "Mumbai", "payment_method": "credit_card", "channel": "online", "demo_note": "Synthetic demonstration data — not real customer/payment data.", "velocity_last_hour": 7, "account_age_days": 3},
     },
-    # Case B: Velocity / repeated anomaly — same customer many txns short window
     {
         "provider_event_id": "evt_demo_caseB_001",
         "amount": Decimal("18400.00"),
@@ -74,7 +75,6 @@ SHOWCASE_TRANSACTIONS = [
         "merchant_category_code": "5411",
         "raw_payload": {"city": "Delhi", "payment_method": "upi", "channel": "online", "demo_note": "Synthetic demonstration data", "velocity_last_hour": 12, "failed_attempts": 3},
     },
-    # Case C: Evidence exception / missing device + gambling high risk
     {
         "provider_event_id": "evt_demo_caseC_001",
         "amount": Decimal("34750.00"),
@@ -90,50 +90,70 @@ SHOWCASE_TRANSACTIONS = [
 ]
 
 
-def truncate_all(db):
-    # Order matters due to FKs
+def truncate_all(db, *, force: bool = False):
+    # Only truncate when explicitly forced; otherwise preserve for idempotency
+    if not force:
+        return False
     db.execute(text("TRUNCATE TABLE analyst_feedback, investigations, evidence, cases, transactions, rules, merchants, devices, customers, audit_log RESTART IDENTITY CASCADE"))
     db.commit()
+    return True
 
 
 def seed_rules(db):
+    # Idempotent: skip if rule with same name exists
+    existing_names = {r.name for r in db.execute(select(Rule)).scalars().all()}
     rules = []
     for name, expr, action, prio in DEMO_RULES:
+        if name in existing_names:
+            continue
         r = Rule(name=name, dsl_expression=expr, action=action, priority=prio, enabled=True, version=1)
         rules.append(r)
-    db.add_all(rules)
-    db.commit()
-    print(f"  Seeded {len(rules)} rules")
+    if rules:
+        db.add_all(rules)
+        db.commit()
+        print(f"  Seeded {len(rules)} rules (skipped {len(DEMO_RULES)-len(rules)} existing)")
+    else:
+        print(f"  Rules already present ({len(existing_names)}), skipping")
 
 
 def seed_showcase_customer_tiers(db):
-    # Pre-create showcase customers with high risk tiers for demo impact
-    from app.models import Customer
     showcase = [
         ("cust_showcase_critical_001", "high", "verified"),
         ("cust_showcase_velocity_002", "high", "pending"),
         ("cust_showcase_evidence_003", "premium", "verified"),
     ]
+    created = 0
     for ext_id, tier, kyc in showcase:
+        exists = db.execute(select(Customer).where(Customer.external_id == ext_id)).scalar_one_or_none()
+        if exists:
+            continue
         c = Customer(external_id=ext_id, risk_tier=tier, kyc_status=kyc)
         db.add(c)
-    db.commit()
+        created += 1
+    if created:
+        db.commit()
+        print(f"  Seeded {created} showcase customers")
+    else:
+        print("  Showcase customers already present")
 
 
 def seed_synthetic_transactions(db, count: int = 220):
     svc = TransactionService(db)
     created = 0
-    # First ingest showcase transactions
+    # Showcase transactions - deterministic IDs, dedup via provider_event_id
     for payload in SHOWCASE_TRANSACTIONS:
         try:
             resp = svc.ingest(payload)
-            created += 1
-            print(f"  Showcase {payload['provider_event_id']} -> {resp.action.value} risk={resp.risk_score:.2f} case={resp.case_id}")
+            # Only count if was new
+            if resp.is_new_transaction:
+                created += 1
+                print(f"  Showcase {payload['provider_event_id']} -> {resp.action.value} risk={resp.risk_score:.2f} case={resp.case_id}")
+            else:
+                print(f"  Showcase {payload['provider_event_id']} already exists -> {resp.action.value} case={resp.case_id}")
         except Exception as e:
             print(f"  ! showcase ingest failed {payload['provider_event_id']}: {e}")
 
-    # Then generate bulk synthetic normal + suspicious mix
-    # Create velocity burst for case B: same customer many transactions quickly
+    # Velocity burst - deterministic IDs
     for i in range(8):
         payload = {
             "provider_event_id": f"evt_demo_velocity_burst_{i:03d}",
@@ -147,8 +167,9 @@ def seed_synthetic_transactions(db, count: int = 220):
             "raw_payload": {"city": "Delhi", "payment_method": "upi", "velocity_burst": True, "demo_note": "Synthetic demonstration data"},
         }
         try:
-            svc.ingest(payload)
-            created += 1
+            resp = svc.ingest(payload)
+            if resp.is_new_transaction:
+                created += 1
         except Exception:
             pass
 
@@ -156,13 +177,13 @@ def seed_synthetic_transactions(db, count: int = 220):
         ext_id = f"cust_demo_{RANDOM.randint(1, 40):03d}"
         merch_cat = RANDOM.choice(MERCHANT_CATEGORIES)
         merch_name = MERCHANT_NAMES[merch_cat]
-        # skewed amounts: 70% normal, 30% suspicious high
         if RANDOM.random() < 0.7:
             amt = Decimal(str(RANDOM.randint(150, 4200)))
         else:
             amt = Decimal(str(RANDOM.randint(6500, 55000)))
+        # Deterministic provider_event_id without uuid
         payload = {
-            "provider_event_id": f"evt_demo_bulk_{i:05d}_{uuid.uuid4().hex[:6]}",
+            "provider_event_id": f"evt_demo_bulk_{i:05d}",
             "amount": amt,
             "currency": "INR",
             "customer_external_id": ext_id,
@@ -178,12 +199,12 @@ def seed_synthetic_transactions(db, count: int = 220):
             },
         }
         try:
-            svc.ingest(payload)
-            created += 1
-        except Exception as e:
-            # ignore duplicate provider_event_id collisions (unlikely with uuid)
+            resp = svc.ingest(payload)
+            if resp.is_new_transaction:
+                created += 1
+        except Exception:
             continue
-    print(f"  Ingested {created} transactions (showcase + bulk)")
+    print(f"  Ingested {created} new transactions (showcase + bulk), total transactions in DB will be higher if already seeded")
     return created
 
 
@@ -193,55 +214,74 @@ def backfill_evidence_and_audits(db):
     cases = db.execute(text("SELECT id, transaction_id, status, created_at FROM cases ORDER BY created_at ASC")).fetchall()
     print(f"  Found {len(cases)} cases for evidence backfill")
     audit = AuditService(db, actor="system")
-    # Add evidence to first half of cases to demonstrate grounding + create audits
+    # Check if already backfilled (evidence exists)
+    existing_evidence = db.execute(text("SELECT count(*) FROM evidence")).scalar() or 0
+    if existing_evidence > 0:
+        print(f"  Evidence already present ({existing_evidence}), skipping backfill (idempotent)")
+        return
     for idx, row in enumerate(cases):
         case_id = row[0]
-        # audit CASE_CREATED for each case (transaction_service did not create via CaseService, so backfill)
         try:
             audit.log(actor="system", action="CASE_CREATED", resource_type="case", resource_id=str(case_id), after={"demo": True, "status": str(row[2])})
         except Exception:
             pass
         if idx % 2 == 0:
             for j in range(RANDOM.randint(1, 2)):
-                ev = Evidence(case_id=case_id, source_type=RANDOM.choice(["transaction", "device", "customer"]), source_id=f"ref_demo_{uuid.uuid4().hex[:8]}", payload={"demo": True, "note": "Synthetic demonstration data", "risk_signal": RANDOM.choice(["HIGH_AMOUNT", "NEW_DEVICE", "VELOCITY"])})
+                ev = Evidence(case_id=case_id, source_type=RANDOM.choice(["transaction", "device", "customer"]), source_id=f"ref_demo_{idx:03d}_{j}", payload={"demo": True, "note": "Synthetic demonstration data", "risk_signal": RANDOM.choice(["HIGH_AMOUNT", "NEW_DEVICE", "VELOCITY"])})
                 db.add(ev)
                 db.flush()
                 try:
                     audit.log(actor="analyst", action="EVIDENCE_ADDED", resource_type="evidence", resource_id=str(ev.id), after={"case_id": str(case_id), "source_type": ev.source_type})
                 except Exception:
                     pass
-        # add investigation audit for first 3 cases
         if idx < 3:
             try:
                 audit.log(actor="nemotron_investigator", action="INVESTIGATION_STARTED", resource_type="investigation", resource_id=str(case_id), after={"case_id": str(case_id)})
                 audit.log(actor="nemotron_investigator", action="INVESTIGATION_COMPLETED", resource_type="investigation", resource_id=str(case_id), after={"case_id": str(case_id), "recommendation": RANDOM.choice(["review", "block"])})
             except Exception:
                 pass
-        if idx == len(cases) - 1 and len(cases) >= 3:
-            pass
     db.commit()
     print("  Evidence & audit backfill committed")
     audit_count = db.execute(text("SELECT count(*) FROM audit_log")).scalar()
     print(f"  Audit events: {audit_count}")
-    # also add analyst decision audit for one case
     if cases:
-        try:
-            audit.log(actor="analyst", action="CASE_UPDATED", resource_type="case", resource_id=str(cases[0][0]), before={"status": "open"}, after={"status": "in_progress", "analyst_decision": "REVIEW", "reason": "High-risk velocity pattern — synthetic demo"})
-            db.commit()
-        except Exception:
-            pass
+        # Only add one CASE_UPDATED if not already present
+        existing_update = db.execute(text("SELECT count(*) FROM audit_log WHERE action='CASE_UPDATED'")).scalar() or 0
+        if existing_update == 0:
+            try:
+                audit.log(actor="analyst", action="CASE_UPDATED", resource_type="case", resource_id=str(cases[0][0]), before={"status": "open"}, after={"status": "in_progress", "analyst_decision": "REVIEW", "reason": "High-risk velocity pattern — synthetic demo"})
+                db.commit()
+            except Exception:
+                pass
 
 
 def main():
+    parser = argparse.ArgumentParser(description="RISK-ERA Demo Seeder — deterministic synthetic data")
+    parser.add_argument("--force", action="store_true", help="Truncate existing data and reseed from scratch (destructive)")
+    args = parser.parse_args()
+
     print("="*60)
     print("RISK-ERA Demo Seeder — Synthetic Payment Data")
     print("Deterministic seed=42 — not real Razorpay data")
+    print(f"Force truncate: {args.force}")
     print("="*60)
     db = SessionLocal()
     try:
-        print("\n[1/5] Truncating existing data...")
-        truncate_all(db)
-        print("  Truncated")
+        # Idempotency check: if data exists and not force, skip truncate and rely on dedup
+        existing_cases = db.execute(text("SELECT count(*) FROM cases")).scalar() or 0
+        existing_txns = db.execute(text("SELECT count(*) FROM transactions")).scalar() or 0
+        if existing_cases > 0 or existing_txns > 0:
+            if not args.force:
+                print(f"\n[1/5] Existing data detected (cases={existing_cases}, txns={existing_txns}) — skipping truncate (idempotent). Use --force to reseed.")
+            else:
+                print("\n[1/5] Truncating existing data (--force)...")
+                truncate_all(db, force=True)
+                print("  Truncated")
+        else:
+            print("\n[1/5] No existing data — no truncate needed")
+            if args.force:
+                truncate_all(db, force=True)
+                print("  Truncated (force)")
 
         print("\n[2/5] Seeding rules...")
         seed_rules(db)
@@ -255,34 +295,50 @@ def main():
         print("\n[5/5] Backfilling evidence & verifying audits...")
         backfill_evidence_and_audits(db)
 
-        # Backfill a few completed investigations for dashboard demo (so AI Investigations >0 without requiring live Nemotron)
+        # Backfill investigations if not already present
+        existing_inv = db.execute(text("SELECT count(*) FROM investigations")).scalar() or 0
+        if existing_inv == 0:
+            try:
+                from app.models.investigation import Investigation, InvestigationStatus
+                showcase_cases = db.execute(text("SELECT id FROM cases ORDER BY created_at ASC LIMIT 3")).fetchall()
+                for idx, (cid,) in enumerate(showcase_cases):
+                    inv = Investigation(
+                        case_id=cid,
+                        model_provider="nvidia",
+                        model_name="nvidia/nemotron-3.5-lightning-30b-a3b",
+                        model_available=False,
+                        status=InvestigationStatus.COMPLETED,
+                        risk_assessment="Synthetic demo — deterministic fallback; high-risk pattern: HIGH_AMOUNT, NEW_DEVICE, VELOCITY",
+                        confidence=0.82 if idx == 0 else 0.76,
+                        recommendation="review" if idx == 0 else "block" if idx == 1 else "review",
+                        reasoning_summary="Demo investigation — synthetic Nemotron fallback. Findings grounded in controlled tool evidence. This is demonstration data, not real payment data.",
+                        findings=[{"finding_id": f"f-demo-{idx+1}", "description": "Detected high-amount + new-device pattern via controlled tools", "evidence_ids": [], "confidence": 0.88, "source": "deterministic"}],
+                        evidence_references=[],
+                        missing_evidence=["Additional device history unavailable — synthetic demo"] if idx == 2 else [],
+                        tool_calls=[{"tool_calls": [{"id": f"demo-tool-{idx}", "function": {"name": "get_transaction_history", "arguments": "{}"}, "result": "{\"success\": true}"}]}],
+                        tool_calls_count=1,
+                        duration_ms=1800 + idx*400,
+                        started_at=datetime.now(timezone.utc) - timedelta(hours=idx+1),
+                        completed_at=datetime.now(timezone.utc) - timedelta(hours=idx),
+                    )
+                    db.add(inv)
+                db.commit()
+                print(f"  Added {len(showcase_cases)} demo investigations")
+            except Exception as e:
+                print(f"  ! investigation backfill failed: {e}")
+                db.rollback()
+        else:
+            print(f"  Investigations already present ({existing_inv}), skipping")
+
+        # Ensure alerts are generated via AlertService (uses existing pipeline, idempotent)
         try:
-            from app.models.investigation import Investigation, InvestigationStatus
-            showcase_cases = db.execute(text("SELECT id FROM cases ORDER BY created_at ASC LIMIT 3")).fetchall()
-            for idx, (cid,) in enumerate(showcase_cases):
-                inv = Investigation(
-                    case_id=cid,
-                    model_provider="nvidia",
-                    model_name="nvidia/nemotron-3.5-lightning-30b-a3b",
-                    model_available=False,
-                    status=InvestigationStatus.COMPLETED,
-                    risk_assessment="Synthetic demo — deterministic fallback; high-risk pattern: HIGH_AMOUNT, NEW_DEVICE, VELOCITY",
-                    confidence=0.82 if idx == 0 else 0.76,
-                    recommendation="review" if idx == 0 else "block" if idx == 1 else "review",
-                    reasoning_summary="Demo investigation — synthetic Nemotron fallback. Findings grounded in controlled tool evidence. This is demonstration data, not real payment data.",
-                    findings=[{"finding_id": f"f-demo-{idx+1}", "description": "Detected high-amount + new-device pattern via controlled tools", "evidence_ids": [], "confidence": 0.88, "source": "deterministic"}],
-                    evidence_references=[],
-                    missing_evidence=["Additional device history unavailable — synthetic demo"] if idx == 2 else [],
-                    tool_calls=[{"tool_calls": [{"id": f"demo-tool-{idx}", "function": {"name": "get_transaction_history", "arguments": "{}"}, "result": "{\"success\": true}"}]}],
-                    tool_calls_count=1,
-                    duration_ms=1800 + idx*400,
-                    started_at=datetime.now(timezone.utc) - timedelta(hours=idx+1),
-                    completed_at=datetime.now(timezone.utc) - timedelta(hours=idx),
-                )
-                db.add(inv)
+            from app.services.alert_service import AlertService
+            svc = AlertService(db)
+            created_alerts = svc.ensure_alerts_generated(limit=100)
             db.commit()
+            print(f"  Alerts ensured: {created_alerts} new (if already present, 0)")
         except Exception as e:
-            print(f"  ! investigation backfill failed: {e}")
+            print(f"  ! alert generation failed: {e}")
             db.rollback()
 
         # Final metrics
@@ -294,6 +350,7 @@ def main():
         evidence = db.execute(text("SELECT count(*) FROM evidence")).scalar()
         audits = db.execute(text("SELECT count(*) FROM audit_log")).scalar()
         invs = db.execute(text("SELECT count(*) FROM investigations")).scalar()
+        alerts = db.execute(text("SELECT count(*) FROM alerts")).scalar()
         by_status = db.execute(text("SELECT status, count(*) FROM cases GROUP BY status")).fetchall()
         print("\n" + "="*60)
         print("Seeding complete — demo environment ready")
@@ -304,8 +361,9 @@ def main():
         print(f"  cases: {cases} by status: {dict(by_status)}")
         print(f"  evidence: {evidence}")
         print(f"  investigations: {invs}")
+        print(f"  alerts: {alerts}")
         print(f"  audit events: {audits}")
-        print("Label: Demo Environment \u00b7 Synthetic Payment Data")
+        print("Label: Demo Environment · Synthetic Payment Data")
         print("="*60)
     finally:
         db.close()
