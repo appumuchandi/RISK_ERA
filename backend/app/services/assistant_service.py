@@ -267,10 +267,10 @@ class AssistantService:
                 "context_used": context or {},
             }
 
-        # Try AI provider
+        # Try AI provider — respect DEMO_MODE and fallback on any failure
         client = self._get_client()
-        if client is None:
-            # Fallback to rule-based answers for general questions when AI unavailable
+        # In DEMO_MODE or when client unavailable, use deterministic fallback immediately
+        if client is None or (hasattr(settings, "demo_mode") and settings.demo_mode):
             return self._fallback_answer(msg, context_data, sources, context)
 
         try:
@@ -317,14 +317,16 @@ class AssistantService:
                 "context_used": context or {},
             }
         except Exception as e:
-            # Log and return fallback
-            # Check if it's an auth error, we should not expose
-            return {
-                "answer": "RISK-ERA Assistant is temporarily unavailable. Please try again.",
-                "grounded": False,
-                "sources": ["documentation"],
-                "context_used": context or {},
-            }
+            # On any AI failure (timeout, auth, network), use deterministic fallback — never return generic unavailable for answerable questions
+            try:
+                return self._fallback_answer(msg, context_data, sources, context)
+            except Exception:
+                return {
+                    "answer": "RISK-ERA Assistant is temporarily unavailable. Please try again.",
+                    "grounded": False,
+                    "sources": ["documentation"],
+                    "context_used": context or {},
+                }
 
     def _fallback_answer(self, message: str, context_data: Dict[str, Any], sources: List[str], context: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         low = message.lower()
