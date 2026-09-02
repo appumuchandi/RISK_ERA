@@ -133,14 +133,14 @@ export const CaseInvestigation = ({ api }: { api: ApiService }) => {
     <section className="case-page">
       <button className="btn btn-ghost" onClick={() => navigate("/cases")}>← Back to Cases</button>
 
-      {/* A. Header */}
+      {/* A. Header — analyst workstation: risk → decision → status → investigation */}
       <div className="case-header" style={{ marginTop: 8 }}>
         <h2 style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           CASE-{caseDetail.id.slice(0, 8).toUpperCase()}
-          <span className={`badge status-${caseDetail.status}`}>{caseDetail.status}</span>
-          <span className={`badge risk-${riskLevel}`}>{riskLevel.toUpperCase()}</span>
-          <span className={`badge rec-${decision}`}>{decision.toUpperCase()}</span>
-          {inv && <span className={`badge ${inv.status === "completed" ? "badge-ok" : inv.status === "failed" ? "badge-bad" : "badge-neutral"}`}>{inv.status}</span>}
+          <span className={`badge risk-${riskLevel}`} title="Risk level from RuleEngine">{riskLevel.toUpperCase()}</span>
+          <span className={`badge rec-${decision}`} title="RuleEngine decision">{decision.toUpperCase()}</span>
+          <span className={`badge status-${caseDetail.status}`} title="Case status">{caseDetail.status}</span>
+          {inv && <span className={`badge ${inv.status === "completed" ? "badge-ok" : inv.status === "failed" ? "badge-bad" : "badge-neutral"}`} title="Investigation status">{inv.status}</span>}
         </h2>
         <p className="muted">Demo Environment · Synthetic Payment Data — not real customer/payment data · Last updated {caseDetail.updated_at ? new Date(caseDetail.updated_at).toLocaleString() : new Date(caseDetail.created_at).toLocaleString()}</p>
         <div className="kv" style={{ marginTop: 8 }}>
@@ -290,20 +290,12 @@ export const CaseInvestigation = ({ api }: { api: ApiService }) => {
         )}
       </div>
 
-      {/* H. Connected Intelligence */}
-      <div className="panel">
-        <h3>Connected Intelligence — Quick Links</h3>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <Link to={`/network?entity_type=transaction&entity_id=${caseDetail.transaction_id}`} className="btn btn-ghost btn-sm">Fraud Network</Link>
-          {related.customer_id && <Link to={`/customers/${related.customer_id}`} className="btn btn-ghost btn-sm">Customer {related.customer_id.slice(0, 8)}…</Link>}
-          {related.merchant_id && <Link to={`/merchants/${related.merchant_id}`} className="btn btn-ghost btn-sm">Merchant {related.merchant_id.slice(0, 8)}…</Link>}
-          {related.device_id && <Link to={`/devices/${related.device_id}`} className="btn btn-ghost btn-sm">Device {related.device_id.slice(0, 8)}…</Link>}
-          {related.alert_id && <Link to={`/alerts`} className="btn btn-ghost btn-sm">Alert {related.alert_id.slice(0, 8)}…</Link>}
-          <Link to={`/rules`} className="btn btn-ghost btn-sm">Rules</Link>
-          {caseDetail.transaction_id && <Link to={`/transactions`} className="btn btn-ghost btn-sm">Transactions</Link>}
-        </div>
-        <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <input placeholder="Assign to analyst" value={assignee} onChange={(e) => setAssignee(e.target.value)} style={{ height: 32, background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: "0 8px", fontSize: ".82rem" }} />
+      {/* H. Analyst Decision — clearly distinguish from AI recommendation */}
+      <div className="panel" style={{ borderLeft: "3px solid var(--accent-primary)" }}>
+        <h3>Analyst Decision <span className="muted" style={{ fontWeight: 400, fontSize: ".72rem" }}>— Overrides AI recommendation · Creates audit event</span></h3>
+        <p className="muted" style={{ fontSize: ".72rem", marginTop: 2 }}>AI previously recommended <span className={`badge rec-${String(inv?.recommendation||"pending").toLowerCase()}`}>{String(inv?.recommendation||"pending").toUpperCase()}</span> {inv ? `(${((typeof inv.confidence==="number"? (inv.confidence>1?inv.confidence:inv.confidence*100):0).toFixed(0))}%)` : ""} — analyst action is authoritative and hash-chained.</p>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+          <input placeholder="Assign to analyst" value={assignee} onChange={(e) => setAssignee(e.target.value)} style={{ height: 32, background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: "0 8px", fontSize: ".82rem", minWidth: 160 }} />
           <button className="btn btn-ghost btn-sm" onClick={handleAssign}>Assign Case</button>
           <select value={newStatus} onChange={(e) => setNewStatus(e.target.value)} style={{ height: 32, background: "var(--bg-secondary)", border: "1px solid var(--border)", borderRadius: 6, padding: "0 8px", fontSize: ".82rem" }}>
             <option value="">Change status…</option>
@@ -314,7 +306,15 @@ export const CaseInvestigation = ({ api }: { api: ApiService }) => {
             <option value="closed_denied">Closed Denied</option>
           </select>
           <button className="btn btn-ghost btn-sm" onClick={handleStatusChange}>Update Status</button>
-          <Link to={`/case/${caseDetail.id}`} className="btn btn-ghost btn-sm">Refresh</Link>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+          <Link to={`/network?entity_type=transaction&entity_id=${caseDetail.transaction_id}`} className="btn btn-ghost btn-sm">Fraud Network</Link>
+          {related.customer_id && <Link to={`/customers/${related.customer_id}`} className="btn btn-ghost btn-sm">Customer {related.customer_id.slice(0, 8)}…</Link>}
+          {related.merchant_id && <Link to={`/merchants/${related.merchant_id}`} className="btn btn-ghost btn-sm">Merchant {related.merchant_id.slice(0, 8)}…</Link>}
+          {related.device_id && <Link to={`/devices/${related.device_id}`} className="btn btn-ghost btn-sm">Device {related.device_id.slice(0, 8)}…</Link>}
+          {related.alert_id && <Link to={`/alerts`} className="btn btn-ghost btn-sm">Alert {related.alert_id.slice(0, 8)}…</Link>}
+          <Link to={`/rules`} className="btn btn-ghost btn-sm">Rules</Link>
+          {caseDetail.transaction_id && <Link to={`/transactions`} className="btn btn-ghost btn-sm">Transactions</Link>}
         </div>
         {actionMsg && <div className="ok-banner" style={{ marginTop: 8 }}>{actionMsg}</div>}
         {actionErr && <div className="error-banner">{actionErr}</div>}

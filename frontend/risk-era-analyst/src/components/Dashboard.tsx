@@ -138,12 +138,12 @@ export const Dashboard = ({ api }: Props) => {
                 const amt = parseFloat(c.amount || "0");
                 const risk = amt > 30000 ? "Critical" : amt > 10000 ? "High" : amt > 5000 ? "Medium" : "Low";
                 return (
-                  <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => navigate(`/case/${c.id}`)}>
+                  <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => navigate(`/case/${c.id}`)} title="Open case">
                     <td className="mono">CASE-{c.id.slice(0, 8).toUpperCase()}</td>
                     <td>₹{amt.toLocaleString("en-IN")}</td>
-                    <td><span className={`badge status-${c.status}`}>{c.status}</span> <span className={`badge risk-${risk.toLowerCase()}`}>{risk}</span></td>
+                    <td><span className={`badge risk-${risk.toLowerCase()}`}>{risk}</span> <span className={`badge status-${c.status}`}>{c.status}</span></td>
                     <td style={{ fontSize: ".78rem" }} className="muted">{new Date(c.created_at).toLocaleDateString()}</td>
-                    <td><button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); navigate(`/case/${c.id}`); }}>Open →</button></td>
+                    <td style={{ textAlign: "right" }}><span className="link" style={{ fontSize: ".78rem" }}>Open →</span></td>
                   </tr>
                 );
               })}</tbody>
